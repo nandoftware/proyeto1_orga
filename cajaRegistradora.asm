@@ -1,13 +1,36 @@
 # caja registradora
-.include "Stock" 
+.include "Stock" 	
 .data
-codigo: .space 6 # necesita 4B para un codigo, 1B para el salto de linea, y porsialasmoscas 1B mas para el operador
+truquito: .word 0 
+codigo: .space 11 # necesita 9B para un codigo (el sistema implementado lee cadenas de texto), 1B para el salto de linea, y  1B mas para el operador
 bienvMSJ: .asciiz "¡Bienvenido a la caja registradora! ingresa los codigos de los productos\n"
 
+# vamos a guardar una lista enlazada con los productos de la compra actual,
+# para eso vamos a guardar el codigo del pruducto, el precio total, y su nombre
+# el precio total debe ser actualizado cuado lo actualizemos en el tejemaneje
+# el codigo debe ser un word, 4B, la cantidad 4B, el precio total son otros dos words, 8B, y su nombre son 16B = 32
+raizActual: .word 0
+cabezaActual: .word 0
+
+# vamos a guardar una lista enlazada con todos los productos compredos en el dia,
+# mismo formato de next que la lista de compra actual
+# 4B para el next, 4B para el codigo, 4B para la cantidad total del producto, 8B para la parte entera y decimal y 16B para el nombre
+raizCierre: .word 0
+cabezaCierre: .word 0
+
+
 EX_001MSJ: .asciiz "El producto no esta en el stock, ingresa otro codigo:\n"
+EX_002MSJ: .asciiz "No hay mas stock del producto, ingresa otro codigo:\n"
+EX_003MSJ: .asciiz "No puedes aumentar la cantidad si no hay productos en la compra, ingresa otro codigo:\n"
+EX_004MSJ: .asciiz "No se pueden eliminar mas productos, ingresa otro codigo:\n"
+EX_005MSJ: .asciiz "codigo no valido, ingreso letras; ingresa otro codigo:\n"
 DOLAR: .asciiz "\t$"
 PUNTO: .asciiz "."
 N: .asciiz "\n"
+IGUAL: .asciiz  " = "
+X: .asciiz "\tX"
+MENOS: .asciiz "\t-"
+TOTAL: .asciiz "Total compra:\t$"
 
 .text
 j Bienvenida
@@ -15,7 +38,9 @@ j Bienvenida
 # ewsta funcion asume que ya esta en $t0 la direcion del string
 # y que el $t1 ta esta la primera cifra del codigo
 ReadString:
-loop:	beq $t1, 10, LeerStock# si son iguales, ya tenemos el codigo, podemos leerlo
+loop:	
+	bge $t1, 58, EX_005
+	beq $t1, 10, endLoop# si son iguales, ya tenemos el codigo, podemos leerlo
 	
 	add $t1, $t1, -48 # lo combierto en un numero 
 	
@@ -25,6 +50,164 @@ loop:	beq $t1, 10, LeerStock# si son iguales, ya tenemos el codigo, podemos leer
 	
 	lb $t1, ($t0) # cargo el primer digito de izq a der
 	b loop
+endLoop: jr $ra
+
+# Inicializamos Lista (IL)
+ILCompraActual:
+	# necesitamos 32B para todo y 4 mas para la direccion (que estará al principio)
+	li $v0, 9
+	la, $a0 4
+	syscall
+	sw $v0, raizActual # raiz tiene la direccion en memoria que le asigno el sbrk en el heap que represenata un nest para el hacia el primer elemento
+	sw $v0, cabezaActual
+	jr $ra
+	
+# Agregar Cabeza (AC)
+ACCompraActual: 
+	lw $s1, cabezaActual
+	
+	li $v0,9 
+	li $a0, 36 
+	syscall
+	
+	sw $v0, ($s1)
+	sw $v0, cabezaActual
+	lw $s1, cabezaActual 
+	# ahora en $s1 tengo la direccion del heap
+	# y para este momento en $a1 tengo la direccion del producto en el stock
+	# ademas 32($s1) es donde va el apuntador al siguiente elemento
+	
+	lw $t8, ($a1) # guardamos el codigo del producto
+	sw $t8, 4($s1) # meto el codigo en la lista de compra actual
+	sw $a3, 8($s1) # en $a3 esta la cantidad de productos de un mismo en este momento
+	sw $t4, 12($s1) # en $t4 estara la parte entera total
+	sw $t5, 16($s1) # en $t5 estara la parte decimal total
+	
+	la  $t4, ($a1)
+nombre:	lb $t8 16($t4)
+	sb $t8, 20($s1)
+	beq $t8, 0, lito
+	add $t4, $t4, 1
+	add $s1, $s1, 1
+	b nombre
+	
+lito:	
+
+	jr $ra
+
+# Recorrer Lista (RL)
+RLCompraActual:
+	
+	lw $t7, raizActual # cargamos la direcion a la que apunta la raiz --- el penultimo
+	lw $t6, ($t7) # y aqui la direcion a la que apunta el primer word de $t7 (next) --- el ultimo
+	beqz $t6, EX_003 
+	lw $t8, ($t6) # y aqui la direcion a la que apunta el primer word de $t6 (next.next) ---- el siguiente
+	
+empieza:
+	beqz $t8,termino
+	lw $t7, ($t7)
+	lw $t6, ($t7)
+	lw $t8, ($t6)
+	
+	
+	b empieza
+termino:
+	# en $t6 esta el ultimo elemento
+	jr $ra
+# Eliminar de la Lista (EL)	
+ELCompraActual: # esta funcion elimina el ultimo elemnto de la lista, y ademas supone que ese elemento esta en $t6 y que el aterior esta en $t7
+	beqz $t6, EX_004
+
+	li $t8, 0
+	sw $t8, ($t7)
+	la $t8, ($t7)
+	sw $t8, cabezaActual
+	jr $ra
+
+# Inicializamos Lista (IL)
+ILCierreDelDia:
+	li $v0, 9
+	la, $a0 4
+	syscall
+	sw $v0, raizCierre 
+	sw $v0, cabezaCierre
+	jr $ra
+	
+# Agregar Cabeza (AC)
+ACCierreDelDia: 
+	move $t9, $ra
+	jal RLCierreDelDia
+	beq $s1, 1, lito2
+	lw $s1, cabezaCierre
+	
+	li $v0,9 
+	li $a0, 36 
+	syscall
+	
+	sw $v0, ($s1)
+	sw $v0, cabezaCierre
+	lw $s1, cabezaCierre 
+
+	# todo lo debemos sacar de la lista enlazada de la compra actual
+	
+	lw $t8, ($a1) # guardamos el codigo del producto
+	sw $t8, 4($s1) # meto el codigo en la lista de compra actual
+	sw $a3, 8($s1) # en $a3 esta la cantidad de productos de un mismo en este momento
+	sw $t4, 12($s1) # en $t4 estara la parte entera total
+	sw $t5, 16($s1) # en $t5 estara la parte decimal total
+	
+	la  $t4, ($a1)
+nombre2:	lb $t8 16($t4)
+	sb $t8, 20($s1)
+	beq $t8, 0, lito2
+	add $t4, $t4, 1
+	add $s1, $s1, 1
+	b nombre2
+	
+lito2:	
+	
+	jr $t9
+	
+# Recorrer Lista (RL)
+RLCierreDelDia:
+	
+	lw $t6, raizCierre 
+	lw $t7, ($t6) # y aqui la direcion a la que apunta el primer word de $t6 (next) 
+	 
+
+	
+empieza2:
+	beqz $t7,termino2
+	lw $s2, 4($t7) # guardamos en $s2 el codigo del producto
+	lw $s3, ($a1) # guardamos el codigo del produto que estamos facturando
+	
+	 # si el codigo de algun elemento que esta en la lista es igual al de $a1
+	 # quire decir que ya habiamos metido $a1 en la lista de la compra total, NO debemos volverlo a meter
+	beq $s2, $s3, termino3
+	
+	lw $t6, ($t6)
+	lw $t7, ($t6)
+	
+	
+	b empieza2
+termino2:
+	# en $t6 esta el ultimo elemento
+	jr $ra
+termino3: #este es para facturar
+	bge $a3, 2, terminar4
+	# en este momento tienes en $t7 la direcion al elemento que ya sabes que esta repetido el la lista del cierre del dia
+	lw $t8, 8($t7) # aqui debe estar la cantidad de ese producto que se a vendido, y como en este momento se esta vendiendo otro, se le debe agregar 
+	add $t8, $a3, $t8
+	sw, $t8, 8($t7)
+	li $s1, 1 # coloca true en $s1
+	jr $ra
+terminar4: # este es para incrementar
+	lw $t8, 8($t7) # aqui debe estar la cantidad de ese producto que se a vendido, y como en este momento se esta vendiendo otro, se le debe agregar 
+	sub $t8, $t8, 1
+	add $t8, $a3, $t8
+	sw, $t8, 8($t7)
+	
+	jr $ra
 
 # la seccion de bienvenida, aqui nda mas coloco un mensaje de bienvenida,
 # tal vez deba hacer esto por dia. 
@@ -32,6 +215,9 @@ Bienvenida:
 	li $v0, 4
 	la $a0, bienvMSJ	
 	syscall
+	
+	jal ILCierreDelDia
+	
 	j CicloCompraActual
 
 # Funcion CicloCompraActual tendra:
@@ -39,13 +225,17 @@ Bienvenida:
 	# segundo debe recivir el codigo de operacion sobre el producto/compra
 	#tercero: dar el total de la cuenta de la compra actual
 CicloCompraActual:
+	lw $v0, raizActual
+	bnez  $v0, ingresarCodigo
+	# de una creamos la lista de la compra actual solo si no la hemos creado ya, raiz no es cero
+	jal ILCompraActual
 
 # Funcion ingresarProducto deberá:
 	# captar el codigo del producto ingresado por el usuario, de momento lo dejo en el registro $t0  
 ingresarCodigo:
 	li $v0, 8
 	la $a0, codigo
-	li $a1, 6
+	li $a1, 11
 	syscall
 	move $t0, $a0 # movemos a $t0 la direcion de lo que sea que acabamos de imgresar
 	lb $s0, ($t0)
@@ -63,32 +253,39 @@ ingresarCodigo:
 
 # como el stock comienza siempre en 0x10010000 pues vamos viendo desde alli si el codigo
 # (el primer valor) es 0, si no, seguimos viendo
+	
 ObtenerProd:
 	li $a1, 0x10010000
 	lb $t1, ($t0) # cargo el primer digito de izq a der
 	li $t2, 0
 	li $t3, 10
-loop:	beq $t1, 10, LeerStock# si son iguales, ya tenemos el codigo, podemos leerlo
-	
-	add $t1, $t1, -48 # lo combierto en un numero 
-	
-	mul $t2, $t3, $t2 # desplazo como si estubiera en base 10 a $t2 (donde voy a guardar el codigo)
-	add $t2, $t2, $t1
-	add $t0, $t0, 1 # actualizao el indice de $t0 en 1
-	
-	lb $t1, ($t0) # cargo el primer digito de izq a der
-	b loop
+	jal ReadString
 	
 LeerStock:
-	lw $a2, ($a1)
+	lw $a2, ($a1) # en $a2 se va guardando el codigo del producto que vamos leyendo
 	beqz $a2, EX_001 # el producto no esta en el stock
-	
+	 
 	beq $a2, $t2, FacturarProducto  # si $a2 y $t2 son iguales, en $a1 esta la direccion de memoria donde esta el producto en stock
 	add $a1, $a1, 0x20
 	b LeerStock
 	
 # debe colocar en la lista de la compra del dia el producto
 FacturarProducto:
+	lw $a2, 4($a1)
+	beqz $a2, EX_002
+	
+	li $a3, 1
+	lw $t4, 8($a1)
+	lw $t5, 12($a1)
+
+	jal ACCompraActual
+	
+	lw $t4, 8($a1)
+	lw $t5, 12($a1)
+	
+	jal ACCierreDelDia
+
+	
 	# imprime el nombre del producto
 	li $v0, 4
 	la $a0, 16($a1)
@@ -114,7 +311,6 @@ FacturarProducto:
 	syscall
 	
 	# ahora le restamos por defecto 1 al stock
-	lw $a2, 4($a1)
 	add $a2, $a2, -1
 	sw $a2, 4($a1)
 	
@@ -122,9 +318,207 @@ FacturarProducto:
 	
 	j CicloCompraActual
 	
+# si meti un operdando es porque en 
 IncrementarProducto:
+	add $t0, $t0, 1
+	lb $t1, ($t0) # cargo el primer digito de izq a der
+	li $t2, 0 
+	li $t3, 10
+	jal ReadString
+	
+	#vamos a recorrer la lista para llegar al ultimo elemento con algo y a ese le modificamos la cantidad del producto y el precio
+	jal RLCompraActual
+	
+	lw $a3, 8($t6) # la cantidad de productos antes de incrementar
+	mul $t2, $t2, $a3 # la nueva cantidad 
+	sw $t2, 8($t6)
+	lw $t3, 4($t6)
+	li $a1, 0x10010000
+obt: # obtener el producto en stock 
+	lw $t1, ($a1)
+	beq $t1, $t3, endObt  # si $a2 y $t2 son iguales, en $a1 esta la direccion de memoria donde esta el producto en stock
+	add $a1, $a1, 0x20
+	b obt
+endObt:
+	# ahora le restamos la cantidad de $t2 al stock
+	add $a2, $a2, $a3
+	sub $a2, $a2, $t2
+	sw $a2, 4($a1)
+	
+	
+	
+	# ahora hay que multiplicar el precio
+	# primero la parte decimal
+	lw $t1, 16($t6)
+	mul $t1, $t2, $t1
+	li $t3,0 # aqui esta el carry
+deci:
+	blt $t1, 0x64, endDeci	
+	sub $t1,$t1,0x64
+	add $t3, $t3, 1
+	b deci
+endDeci:
+	li $s5, 0
+	add  $s5, $s5, $t1 # aca guardamos la parte decimal adicional a la que ya estaba en cierre del dia
+	sw $t1, 16($t6)
+	
+	
+	#ahora la parte entera
+	lw $t1 12($t6)
+	mul $t1, $t2, $t1
+	add $t1, $t3, $t1
+	
+	li $s6, 0
+	add $s6, $s6, $t1 # aca esta la parte entera nueva a adicionar en cierre
+	sw $t1, 12($t6)
+	
+	
+	li $v0, 4
+	la $a0, X
+	syscall
+	
+	li $v0, 1
+	move $a0, $t2
+	syscall
+	
+	li $v0, 4
+	la $a0, IGUAL
+	syscall
+	
+	la $a0, DOLAR
+	syscall
+	
+	li $v0, 1
+	lw $a0, 12($t6)
+	syscall
+	
+	li $v0, 4
+	la $a0, PUNTO
+	syscall
+	
+	li $v0, 1
+	lw $a0, 16($t6)
+	syscall
+	
+	li $v0, 4
+	la $a0, N
+	syscall
+	
+	# ahora hay que reflejar la cantidad en la lista del cierre del dia
+	# debemos recorrer la lista del cierre hasta encontrar el producto con el codigo que esta en 4($a1)
+	# vamos a aprovecharnos de un diseño acidental pero muy conveniente en RLCierreDelDia
+	# el ya se encarga de conseguir que el codigo d eun producto se a igual a lo que esta en 4($a1)
+	# tambien debemos eliminar lo que habia en la lista 
+	li $a3, 0
+	add $a3, $a3, $t2
+	jal RLCierreDelDia
+	
+	# adicionamos la parte entera
+	lw $s4, 16($t7)
+	add $s4, $s4, $s5
+	li $t3, 0
+deci2:
+	blt $s4, 0x64, endDeci2	
+	sub $s4,$s4,0x64
+	add $t3, $t3, 1
+	b deci2
+endDeci2:
+	sw $s4, 16($t7)
+	
+	lw $s4, 12($t7) # estos son los enteros que teniamos
+	add $s4, $s6, $s4 # esto es la suma acabamos de aumentar y lo que teniamos,
+	add $s4, $t3, $s4 # y la suma del pusible carry
+	sw $s4, 12($t7)
+
+	j CicloCompraActual
+	
 RestarProducto:
+	add $t0, $t0, 1
+	lb $t1, ($t0) # cargo el primer digito de izq a der
+	li $t2, 0  # obtenemos en t2 cuantos elementos debemos eliminar
+	li $t3, 10
+	jal ReadString
+	
+	# imprimimos el menos [cantidad de elementos]
+	li $v0, 4
+	la $a0, MENOS
+	syscall
+	
+	li $v0, 1
+	move $a0, $t2
+	syscall
+	move $t2, $a0
+	
+	li $v0, 4
+	la $a0, N
+	syscall
+	
+	# iteramos la cantidad que diga $t2, y para cada iteracion recorremos, cambiamos el apuntador del penultimo y lo avisamos por la salida
+elimi:	beqz $t2, finEliminacion 
+	jal RLCompraActual
+	
+	
+	li $v0, 4
+	la $a0, MENOS
+	syscall
+	
+	lw $a0, ($t7)
+	add $a0, $a0, 20
+	syscall
+	#lw $a0, 24($t6)
+	#syscall
+	#lw $a0, 28($t6)
+	#syscall
+	#lw $a0, 32($t6)
+	#syscall
+	
+	la $a0, X
+	syscall
+	
+	li $v0, 1
+	lw $a0, 8($t6)
+	syscall
+	
+	li $v0, 4
+	la $a0, MENOS
+	syscall
+	
+	# parte entera
+	li $v0, 1
+	lw $a0, 12($t6)
+	syscall
+	
+	li $v0, 4
+	la $a0, PUNTO
+	syscall
+
+	# parte decimal
+	li $v0, 1
+	lw $a0, 16($t6)
+	syscall
+	
+	li $v0, 4
+	la $a0, N
+	syscall
+	
+	jal ELCompraActual 
+	
+	sub $t2, $t2, 1
+	b elimi
+finEliminacion:
+	j CicloCompraActual
+
 TerminarCompraActual:
+	# debemos mostrar el total
+	li $v0, 0
+	sw $v0, raizActual
+	sw $v0, cabezaActual
+	
+	li $v0, 4
+	la $a0, TOTAL
+	syscall
+	
+	j CicloCompraActual
 Main: 
 
 
@@ -137,6 +531,30 @@ Main:
 EX_001: # el producto no esta en el stock
 	li $v0, 4
 	la $a0, EX_001MSJ	
+	syscall
+	j CicloCompraActual
+
+EX_002: # no hay estock del producto
+	li $v0, 4
+	la $a0, EX_002MSJ
+	syscall
+	j CicloCompraActual
+	
+EX_003: # no hemos metido nada en la compra y ya queremos aumentar el numero del ultimo producto
+	li $v0, 4
+	la $a0, EX_003MSJ
+	syscall
+	j CicloCompraActual
+	
+EX_004: # intentamos restar pero no hay mas que restar
+	li $v0, 4
+	la $a0, EX_004MSJ
+	syscall
+	j CicloCompraActual
+	
+EX_005: # metemos letras en el codigo
+	li $v0, 4
+	la $a0, EX_005MSJ
 	syscall
 	j CicloCompraActual
 	

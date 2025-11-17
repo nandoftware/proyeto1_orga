@@ -11,11 +11,11 @@ P002: 	.word 5678 240 1 25
 	.asciiz "Ovomaltina" # 11 caracteres
 	.align 5
 	
-P003: 	.word 9988 250 1 0
+P003: 	.word 9988 250 1 25
 	.asciiz "Nucita" # 7 caracteres
 	.align 5
 	
-P004: 	.word 7766 200 1 0
+P004: 	.word 7766 200 1 50
 	.asciiz "Nutella" # 8 caracteres
 	.align 5
 	
@@ -28,5 +28,7 @@ P006: 	.word 3322 50 6 75
 	.align 5
 
 # truqito para no hacer una lista repetida
-truquito: .word 0 
+
+
+
 
