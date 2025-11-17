@@ -695,6 +695,23 @@ elimi:	beqz $t2, finEliminacion
 	la $a0, N
 	syscall
 	
+	
+	li $a1, 0x10010000
+	lw $v0, ($a1)
+	lw $v1, 4($t6)
+	
+BuscandoStock2:
+	beq $v0, $v1, TengoStock2
+	add $a1, $a1, 0x20
+	lw $v0, ($a1)
+	b BuscandoStock2
+	
+TengoStock2:
+	lw $v0, 4($a1)
+	lw $v1, 8($t6)
+	add $v0, $v0, $v1
+	sw $v0,  4($a1)
+	
 	jal ELCompraActual 
 	
 	sub $t2, $t2, 1
